@@ -1,3 +1,4 @@
 discord.py-self
 groq
 python-dotenv
+flask
