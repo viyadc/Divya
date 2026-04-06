@@ -36,56 +36,33 @@ user_memories = {}
 active_sessions = {}
 message_queue = {} 
 SESSION_TIMEOUT = 300 
-active_servers = set()  # Ab ye sirf un servers ki ID rakhega jahan bot ON hai
 
 @bot.event
 async def on_ready():
     print(f'Divya is fixed! Ab sukoon se chat karo. 🔥')
-
-@bot.command()
-async def chalu(ctx):
-    active_servers.add(ctx.guild.id)
-    await ctx.send("Theek hai bhai, is server mein 'Divya' active hai! 🔥")
-
-@bot.command()
-async def bas(ctx):
-    if ctx.guild.id in active_servers:
-        active_servers.remove(ctx.guild.id)
-    await ctx.send("Done! Is server mein ab main beech mein nahi padungi. 🤐")
 
 @bot.event
 async def on_message(message):
     global ai_enabled
     
     if message.author.bot: return
-
-    # Commands check karne ke liye (important!)
-    if message.content.startswith('!'):
-        await bot.process_commands(message)
-        return
+    if message.mention_everyone: return
 
     if message.author.id == bot.user.id:
+        await bot.process_commands(message)
         if message.channel.id in message_queue:
             message_queue[message.channel.id] = []
         return
 
-    # --- UPDATE: Trigger check with Server Filter ---
     channel_id = message.channel.id
     current_time = time.time()
-    
-    # Check ki is server mein tune !chalu kiya hai ya nahi
-    is_server_active = message.guild and message.guild.id in active_servers
-
-    if message.mention_everyone:
-        return
 
     is_triggered = bot.user.mentioned_in(message) or (
         channel_id in active_sessions and 
         (current_time - active_sessions[channel_id]) < SESSION_TIMEOUT
     )
 
-    # AI tabhi chalega jab server active ho aur trigger hua ho
-    if ai_enabled and is_server_active and is_triggered:
+    if ai_enabled and is_triggered:
         active_sessions[channel_id] = current_time
         
         if channel_id not in message_queue:
@@ -94,6 +71,7 @@ async def on_message(message):
         message_queue[channel_id].append(message.content)
         
         # --- SMART WAIT (Increased to 6 seconds) ---
+        # Isse woh tere multiple messages ka wait karegi
         await asyncio.sleep(6) 
         
         if len(message_queue[channel_id]) > 0:
@@ -129,10 +107,16 @@ async def on_message(message):
                     presence_penalty=0.8,
                     frequency_penalty=0.5
                 )
-                raw_reply = chat_completion.choices[0].message.content
+                raw_reply = chat_completion.choices[0].message.content.lower()
 
                 # --- Final Human Touch: Regex & Lower ---
+                raw_reply = chat_completion.choices[0].message.content
+
+        # 1. Punctuation hatana (Comma, Full Stop, etc.)
+        # Humne '?' ko choda hai taaki sawal sawal lage, baaki sab saaf
                 clean_reply = re.sub(r'[.,!/\\;:]', '', raw_reply)
+
+        # 2. Lowercase karna
                 final_reply = clean_reply.lower().strip()
 
                 # Typing Effect
