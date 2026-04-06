@@ -7,6 +7,22 @@ from groq import Groq
 import os
 import re
 from dotenv import load_dotenv
+from flask import Flask
+from threading import Thread
+
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Divya is Awake!"
+
+def run():
+    port = int(os.environ.get("PORT", 8080)) 
+    app.run(host='0.0.0.0', port=port)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
 
 load_dotenv()
 USER_TOKEN = os.getenv('USER_TOKEN') 
@@ -113,5 +129,5 @@ async def on_message(message):
 
             except Exception as e:
                 print(f"Error: {e}")
-
+keep_alive()
 bot.run(USER_TOKEN)
