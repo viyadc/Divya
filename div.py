@@ -47,6 +47,9 @@ async def on_message(message):
     
     if message.author.bot: return
     if message.mention_everyone: return
+    if len(message.content) < 2: return
+    if message.content.startswith(('!', '.', '?', '/', '$','@')): return
+    if "http" in message.content.lower() or "discord.gg" in message.content.lower(): return
 
     if message.author.id == bot.user.id:
         await bot.process_commands(message)
