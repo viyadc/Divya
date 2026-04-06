@@ -76,6 +76,9 @@ async def on_message(message):
     # Check ki is server mein tune !chalu kiya hai ya nahi
     is_server_active = message.guild and message.guild.id in active_servers
 
+    if message.mention_everyone:
+        return
+
     is_triggered = bot.user.mentioned_in(message) or (
         channel_id in active_sessions and 
         (current_time - active_sessions[channel_id]) < SESSION_TIMEOUT
