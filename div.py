@@ -27,7 +27,7 @@ def keep_alive():
     t.start()
 
 def log(msg):
-    print(msg, flush=True)  # Render console ke liye flush zaroori hai
+    print(msg, flush=True)
 
 load_dotenv()
 USER_TOKEN = os.getenv('USER_TOKEN')
@@ -35,7 +35,6 @@ GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 groq_client = Groq(api_key=GROQ_API_KEY)
 
 bump_channels = set()
-
 bot = commands.Bot(command_prefix="!", self_bot=True, help_command=None)
 
 user_memories = {}
@@ -93,9 +92,34 @@ def split_message_naturally(text):
 
 DISBOARD_BOT_ID = "302050872383242240"
 
+async def fetch_bump_command(guild_id):
+    """Disboard ka live /bump command ID fetch karta hai us guild ke liye."""
+    headers = {
+        "Authorization": USER_TOKEN,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    }
+    url = f"https://discord.com/api/v10/guilds/{guild_id}/application-command-index"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                for app in data.get("application_commands", []):
+                    if app.get("application_id") == DISBOARD_BOT_ID and app.get("name") == "bump":
+                        log(f"[Bump] Found command -> id={app['id']} version={app.get('version')}")
+                        return app["id"], app.get("version", app["id"])
+            else:
+                text = await resp.text()
+                log(f"[Bump] fetch_bump_command failed {resp.status}: {text[:200]}")
+    return None, None
+
 async def bump_channel(channel):
-    """Direct aiohttp se /bump slash command bhejta hai."""
-    log(f"[Bump] Trying to bump #{channel.name} in {channel.guild.name}...")
+    """Guild se live command ID fetch karke /bump bhejta hai."""
+    log(f"[Bump] Trying #{channel.name} ({channel.guild.name})...")
+
+    cmd_id, cmd_version = await fetch_bump_command(str(channel.guild.id))
+    if not cmd_id:
+        log(f"[Bump] Could not find /bump command for guild {channel.guild.id} — is Disboard in this server?")
+        return False
 
     nonce = str(int(time.time() * 1000))
     payload = {
@@ -105,17 +129,17 @@ async def bump_channel(channel):
         "channel_id": str(channel.id),
         "session_id": bot._connection.session_id or "abcdef1234567890",
         "data": {
-            "version": "947088344167366698",
-            "id": "947088344167366698",
+            "version": cmd_version,
+            "id": cmd_id,
             "name": "bump",
             "type": 1,
             "options": [],
             "application_command": {
-                "id": "947088344167366698",
+                "id": cmd_id,
                 "application_id": DISBOARD_BOT_ID,
                 "name": "bump",
                 "description": "Bump your server on DISBOARD!",
-                "version": "947088344167366698",
+                "version": cmd_version,
                 "type": 1,
                 "options": []
             },
@@ -141,15 +165,14 @@ async def bump_channel(channel):
             ) as resp:
                 status = resp.status
                 text = await resp.text()
-                log(f"[Bump] Status: {status} | Response: {text[:200]}")
                 if status == 204:
                     log(f"[Bump] SUCCESS -> #{channel.name} ({channel.guild.name})")
                     return True
                 else:
-                    log(f"[Bump] FAILED {status} -> #{channel.name} | {text[:300]}")
+                    log(f"[Bump] FAILED {status} -> {text[:300]}")
                     return False
     except Exception as e:
-        log(f"[Bump] EXCEPTION in bump_channel: {type(e).__name__}: {e}")
+        log(f"[Bump] EXCEPTION: {type(e).__name__}: {e}")
         return False
 
 async def auto_bump():
@@ -178,7 +201,7 @@ async def add_bump(ctx, channel_id: int = None):
         await ctx.send("usage: !addbump <channel_id>")
         return
     bump_channels.add(channel_id)
-    await ctx.send(f"✅ Channel {channel_id} bump list mein add ho gaya!")
+    await ctx.send(f"✅ Channel {channel_id} add ho gaya!")
     log(f"[Bump] Added channel: {channel_id}")
 
 @bot.command(name="removebump")
@@ -195,7 +218,7 @@ async def remove_bump(ctx, channel_id: int = None):
 @bot.command(name="listbumps")
 async def list_bumps(ctx):
     if not bump_channels:
-        await ctx.send("📋 Abhi koi bump channel registered nahi hai.")
+        await ctx.send("📋 Koi bump channel registered nahi hai.")
         return
     lines = []
     for ch_id in bump_channels:
@@ -211,7 +234,7 @@ async def bump_now(ctx):
     if not bump_channels:
         await ctx.send("❌ Koi channel nahi hai. Pehle !addbump karo.")
         return
-    await ctx.send(f"🔄 {len(bump_channels)} channel(s) mein bump kar raha hoon...")
+    await ctx.send(f"🔄 {len(bump_channels)} channel(s) bump ho raha hai...")
     for ch_id in list(bump_channels):
         try:
             channel = bot.get_channel(ch_id) or await bot.fetch_channel(ch_id)
@@ -219,22 +242,21 @@ async def bump_now(ctx):
             if success:
                 await ctx.send(f"✅ Bumped #{channel.name} ({channel.guild.name})")
             else:
-                await ctx.send(f"❌ #{channel.name} bump fail — console dekho error ke liye")
+                await ctx.send(f"❌ #{channel.name} fail — console dekho")
             await asyncio.sleep(3)
         except Exception as e:
-            log(f"[Bump] bumpnow exception: {type(e).__name__}: {e}")
-            await ctx.send(f"❌ Channel {ch_id} error: {type(e).__name__}: {e}")
+            log(f"[Bump] bumpnow exception: {e}")
+            await ctx.send(f"❌ Error: {e}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 
 @bot.event
 async def on_ready():
-    log(f'Divya online! Session: {bot._connection.session_id}')
+    log(f'Divya online!')
     bot.loop.create_task(auto_bump())
 
 @bot.event
 async def on_message(message):
-    # Apne messages — commands process karo
     if message.author.id == bot.user.id:
         await bot.process_commands(message)
         return
@@ -246,7 +268,6 @@ async def on_message(message):
     if len(message.content) < 2: return
     if message.content.startswith(('!', '.', '?', '/', '$', '@')): return
     if "http" in message.content.lower() or "discord.gg" in message.content.lower(): return
-
     if not bot.user.mentioned_in(message):
         return
 
