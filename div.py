@@ -85,12 +85,11 @@ def split_message_naturally(text):
             return [text[:split_at], text[split_at+1:]]
     return [text]
 
-# ─── AUTO BUMP LOOP ───────────────────────────────────────────────────────────
+# ─── AUTO BUMP ────────────────────────────────────────────────────────────────
 
-DISBOARD_BOT_ID = 302050872383242240  # Official Disboard ID
+DISBOARD_BOT_ID = 302050872383242240
 
 async def bump_channel(channel):
-    """Ek channel mein /bump bhejta hai."""
     await channel._state.http.request(
         discord.http.Route('POST', '/interactions'),
         json={
@@ -110,87 +109,63 @@ async def bump_channel(channel):
     )
 
 async def auto_bump():
-    """Har 2 ghante mein sabhi registered channels mein /bump karta hai."""
     await bot.wait_until_ready()
     print("[Bump] Auto-bump loop shuru ho gaya.")
-
     while not bot.is_closed():
         if bump_channels:
             for ch_id in list(bump_channels):
                 try:
                     channel = bot.get_channel(ch_id) or await bot.fetch_channel(ch_id)
                     await bump_channel(channel)
-                    print(f"[Bump] /bump bheja → #{channel.name} ({channel.guild.name}) ✓")
-                    await asyncio.sleep(3)  # Channels ke beech thoda gap
+                    print(f"[Bump] /bump bheja -> #{channel.name} ({channel.guild.name}) OK")
+                    await asyncio.sleep(3)
                 except Exception as e:
                     print(f"[Bump] Error channel {ch_id}: {e}")
         else:
             print("[Bump] Koi channel registered nahi hai abhi.")
-
-        await asyncio.sleep(7200)  # 2 ghante
+        await asyncio.sleep(7200)
 
 # ─── BUMP COMMANDS ────────────────────────────────────────────────────────────
 
 @bot.command(name="addbump")
 async def add_bump(ctx, channel_id: int = None):
-    """!addbump <channel_id> — bump list mein channel add karo"""
-    if ctx.author.id != bot.user.id:
-        return  # Sirf apne aap se commands lega
-
     if channel_id is None:
-        await ctx.send("usage: `!addbump <channel_id>`")
+        await ctx.send("usage: !addbump <channel_id>")
         return
-
     bump_channels.add(channel_id)
-    await ctx.send(f"✅ Channel `{channel_id}` bump list mein add ho gaya!")
+    await ctx.send(f"✅ Channel {channel_id} bump list mein add ho gaya!")
     print(f"[Bump] Added channel: {channel_id}")
 
 @bot.command(name="removebump")
 async def remove_bump(ctx, channel_id: int = None):
-    """!removebump <channel_id> — bump list se channel hatao"""
-    if ctx.author.id != bot.user.id:
-        return
-
     if channel_id is None:
-        await ctx.send("usage: `!removebump <channel_id>`")
+        await ctx.send("usage: !removebump <channel_id>")
         return
-
     if channel_id in bump_channels:
         bump_channels.discard(channel_id)
-        await ctx.send(f"🗑️ Channel `{channel_id}` remove ho gaya.")
+        await ctx.send(f"🗑️ Channel {channel_id} remove ho gaya.")
     else:
-        await ctx.send(f"❌ Yeh channel list mein tha hi nahi.")
+        await ctx.send("❌ Yeh channel list mein tha hi nahi.")
 
 @bot.command(name="listbumps")
 async def list_bumps(ctx):
-    """!listbumps — sabhi registered bump channels dekho"""
-    if ctx.author.id != bot.user.id:
-        return
-
     if not bump_channels:
         await ctx.send("📋 Abhi koi bump channel registered nahi hai.")
         return
-
     lines = []
     for ch_id in bump_channels:
         ch = bot.get_channel(ch_id)
         if ch:
-            lines.append(f"• #{ch.name} — {ch.guild.name} (`{ch_id}`)")
+            lines.append(f"• #{ch.name} — {ch.guild.name} ({ch_id})")
         else:
-            lines.append(f"• `{ch_id}` (channel fetch nahi hua)")
+            lines.append(f"• {ch_id} (fetch nahi hua)")
+    await ctx.send("📋 Bump Channels:\n" + "\n".join(lines))
 
-    await ctx.send("📋 **Bump Channels:**\n" + "\n".join(lines))
-
-@bot.command(name="bumknow")
+@bot.command(name="bumpnow")
 async def bump_now(ctx):
-    """!bumknow — abhi turant sabhi channels mein bump karo"""
-    if ctx.author.id != bot.user.id:
-        return
-
     if not bump_channels:
-        await ctx.send("❌ Koi channel registered nahi hai. Pehle `!addbump` karo.")
+        await ctx.send("❌ Koi channel nahi hai. Pehle !addbump karo.")
         return
-
     await ctx.send(f"🔄 {len(bump_channels)} channel(s) mein bump kar raha hoon...")
     for ch_id in list(bump_channels):
         try:
@@ -199,7 +174,7 @@ async def bump_now(ctx):
             await ctx.send(f"✅ Bumped #{channel.name} ({channel.guild.name})")
             await asyncio.sleep(3)
         except Exception as e:
-            await ctx.send(f"❌ Channel `{ch_id}` mein error: {e}")
+            await ctx.send(f"❌ Channel {ch_id} error: {e}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -210,11 +185,16 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
-    # Sab bots ignore
+    # ⚠️ APNE messages pehle check karo — commands yahan se trigger honge
+    if message.author.id == bot.user.id:
+        await bot.process_commands(message)
+        return
+
+    # Bots ignore
     if message.author.bot:
         return
 
-    # @everyone aur @here ignore
+    # @everyone / @here ignore
     if message.mention_everyone:
         return
 
@@ -223,12 +203,7 @@ async def on_message(message):
     if message.content.startswith(('!', '.', '?', '/', '$', '@')): return
     if "http" in message.content.lower() or "discord.gg" in message.content.lower(): return
 
-    # Apne messages ignore
-    if message.author.id == bot.user.id:
-        await bot.process_commands(message)
-        return
-
-    # SIRF direct mention pe respond karo
+    # SIRF mention pe respond karo
     if not bot.user.mentioned_in(message):
         return
 
