@@ -29,6 +29,9 @@ USER_TOKEN = os.getenv('USER_TOKEN')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 groq_client = Groq(api_key=GROQ_API_KEY)
 
+# Multi-server bump channel list (runtime mein add/remove hoga)
+bump_channels = set()
+
 bot = commands.Bot(command_prefix="!", self_bot=True, help_command=None)
 
 user_memories = {}
@@ -82,9 +85,128 @@ def split_message_naturally(text):
             return [text[:split_at], text[split_at+1:]]
     return [text]
 
+# ─── AUTO BUMP LOOP ───────────────────────────────────────────────────────────
+
+DISBOARD_BOT_ID = 302050872383242240  # Official Disboard ID
+
+async def bump_channel(channel):
+    """Ek channel mein /bump bhejta hai."""
+    await channel._state.http.request(
+        discord.http.Route('POST', '/interactions'),
+        json={
+            "type": 2,
+            "application_id": str(DISBOARD_BOT_ID),
+            "guild_id": str(channel.guild.id),
+            "channel_id": str(channel.id),
+            "data": {
+                "version": "947088344167366698",
+                "id": "947088344167366698",
+                "name": "bump",
+                "type": 1
+            },
+            "session_id": bot._connection.session_id,
+            "nonce": str(int(time.time() * 1000))
+        }
+    )
+
+async def auto_bump():
+    """Har 2 ghante mein sabhi registered channels mein /bump karta hai."""
+    await bot.wait_until_ready()
+    print("[Bump] Auto-bump loop shuru ho gaya.")
+
+    while not bot.is_closed():
+        if bump_channels:
+            for ch_id in list(bump_channels):
+                try:
+                    channel = bot.get_channel(ch_id) or await bot.fetch_channel(ch_id)
+                    await bump_channel(channel)
+                    print(f"[Bump] /bump bheja → #{channel.name} ({channel.guild.name}) ✓")
+                    await asyncio.sleep(3)  # Channels ke beech thoda gap
+                except Exception as e:
+                    print(f"[Bump] Error channel {ch_id}: {e}")
+        else:
+            print("[Bump] Koi channel registered nahi hai abhi.")
+
+        await asyncio.sleep(7200)  # 2 ghante
+
+# ─── BUMP COMMANDS ────────────────────────────────────────────────────────────
+
+@bot.command(name="addbump")
+async def add_bump(ctx, channel_id: int = None):
+    """!addbump <channel_id> — bump list mein channel add karo"""
+    if ctx.author.id != bot.user.id:
+        return  # Sirf apne aap se commands lega
+
+    if channel_id is None:
+        await ctx.send("usage: `!addbump <channel_id>`")
+        return
+
+    bump_channels.add(channel_id)
+    await ctx.send(f"✅ Channel `{channel_id}` bump list mein add ho gaya!")
+    print(f"[Bump] Added channel: {channel_id}")
+
+@bot.command(name="removebump")
+async def remove_bump(ctx, channel_id: int = None):
+    """!removebump <channel_id> — bump list se channel hatao"""
+    if ctx.author.id != bot.user.id:
+        return
+
+    if channel_id is None:
+        await ctx.send("usage: `!removebump <channel_id>`")
+        return
+
+    if channel_id in bump_channels:
+        bump_channels.discard(channel_id)
+        await ctx.send(f"🗑️ Channel `{channel_id}` remove ho gaya.")
+    else:
+        await ctx.send(f"❌ Yeh channel list mein tha hi nahi.")
+
+@bot.command(name="listbumps")
+async def list_bumps(ctx):
+    """!listbumps — sabhi registered bump channels dekho"""
+    if ctx.author.id != bot.user.id:
+        return
+
+    if not bump_channels:
+        await ctx.send("📋 Abhi koi bump channel registered nahi hai.")
+        return
+
+    lines = []
+    for ch_id in bump_channels:
+        ch = bot.get_channel(ch_id)
+        if ch:
+            lines.append(f"• #{ch.name} — {ch.guild.name} (`{ch_id}`)")
+        else:
+            lines.append(f"• `{ch_id}` (channel fetch nahi hua)")
+
+    await ctx.send("📋 **Bump Channels:**\n" + "\n".join(lines))
+
+@bot.command(name="bumknow")
+async def bump_now(ctx):
+    """!bumknow — abhi turant sabhi channels mein bump karo"""
+    if ctx.author.id != bot.user.id:
+        return
+
+    if not bump_channels:
+        await ctx.send("❌ Koi channel registered nahi hai. Pehle `!addbump` karo.")
+        return
+
+    await ctx.send(f"🔄 {len(bump_channels)} channel(s) mein bump kar raha hoon...")
+    for ch_id in list(bump_channels):
+        try:
+            channel = bot.get_channel(ch_id) or await bot.fetch_channel(ch_id)
+            await bump_channel(channel)
+            await ctx.send(f"✅ Bumped #{channel.name} ({channel.guild.name})")
+            await asyncio.sleep(3)
+        except Exception as e:
+            await ctx.send(f"❌ Channel `{ch_id}` mein error: {e}")
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 @bot.event
 async def on_ready():
     print(f'Divya online!')
+    bot.loop.create_task(auto_bump())
 
 @bot.event
 async def on_message(message):
