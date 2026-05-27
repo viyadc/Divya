@@ -4,6 +4,7 @@ import asyncio
 import random
 import time
 import aiohttp
+import sys
 from groq import Groq
 import os
 import re
@@ -24,6 +25,9 @@ def run():
 def keep_alive():
     t = Thread(target=run)
     t.start()
+
+def log(msg):
+    print(msg, flush=True)  # Render console ke liye flush zaroori hai
 
 load_dotenv()
 USER_TOKEN = os.getenv('USER_TOKEN')
@@ -90,14 +94,16 @@ def split_message_naturally(text):
 DISBOARD_BOT_ID = "302050872383242240"
 
 async def bump_channel(channel):
-    """Direct aiohttp se /bump slash command bhejta hai — 100% self-bot compatible."""
+    """Direct aiohttp se /bump slash command bhejta hai."""
+    log(f"[Bump] Trying to bump #{channel.name} in {channel.guild.name}...")
+
     nonce = str(int(time.time() * 1000))
     payload = {
         "type": 2,
         "application_id": DISBOARD_BOT_ID,
         "guild_id": str(channel.guild.id),
         "channel_id": str(channel.id),
-        "session_id": bot._connection.session_id or "deadbeef",
+        "session_id": bot._connection.session_id or "abcdef1234567890",
         "data": {
             "version": "947088344167366698",
             "id": "947088344167366698",
@@ -126,34 +132,42 @@ async def bump_channel(channel):
         "X-Super-Properties": "eyJvcyI6IldpbmRvd3MiLCJicm93c2VyIjoiQ2hyb21lIn0=",
     }
 
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            "https://discord.com/api/v10/interactions",
-            json=payload,
-            headers=headers
-        ) as resp:
-            if resp.status == 204:
-                print(f"[Bump] /bump bheja -> #{channel.name} ({channel.guild.name}) OK")
-                return True
-            else:
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://discord.com/api/v10/interactions",
+                json=payload,
+                headers=headers
+            ) as resp:
+                status = resp.status
                 text = await resp.text()
-                print(f"[Bump] Failed {resp.status}: {text}")
-                return False
+                log(f"[Bump] Status: {status} | Response: {text[:200]}")
+                if status == 204:
+                    log(f"[Bump] SUCCESS -> #{channel.name} ({channel.guild.name})")
+                    return True
+                else:
+                    log(f"[Bump] FAILED {status} -> #{channel.name} | {text[:300]}")
+                    return False
+    except Exception as e:
+        log(f"[Bump] EXCEPTION in bump_channel: {type(e).__name__}: {e}")
+        return False
 
 async def auto_bump():
     await bot.wait_until_ready()
-    print("[Bump] Auto-bump loop shuru ho gaya.")
+    log("[Bump] Auto-bump loop shuru ho gaya.")
     while not bot.is_closed():
         if bump_channels:
+            log(f"[Bump] {len(bump_channels)} channel(s) bump karne ja raha hoon...")
             for ch_id in list(bump_channels):
                 try:
                     channel = bot.get_channel(ch_id) or await bot.fetch_channel(ch_id)
                     await bump_channel(channel)
                     await asyncio.sleep(3)
                 except Exception as e:
-                    print(f"[Bump] Error channel {ch_id}: {e}")
+                    log(f"[Bump] Error getting channel {ch_id}: {type(e).__name__}: {e}")
         else:
-            print("[Bump] Koi channel registered nahi hai.")
+            log("[Bump] Koi channel registered nahi hai.")
+        log("[Bump] Next bump 2 ghante baad...")
         await asyncio.sleep(7200)
 
 # ─── BUMP COMMANDS ────────────────────────────────────────────────────────────
@@ -165,7 +179,7 @@ async def add_bump(ctx, channel_id: int = None):
         return
     bump_channels.add(channel_id)
     await ctx.send(f"✅ Channel {channel_id} bump list mein add ho gaya!")
-    print(f"[Bump] Added channel: {channel_id}")
+    log(f"[Bump] Added channel: {channel_id}")
 
 @bot.command(name="removebump")
 async def remove_bump(ctx, channel_id: int = None):
@@ -205,16 +219,17 @@ async def bump_now(ctx):
             if success:
                 await ctx.send(f"✅ Bumped #{channel.name} ({channel.guild.name})")
             else:
-                await ctx.send(f"❌ #{channel.name} bump fail hua — console dekho")
+                await ctx.send(f"❌ #{channel.name} bump fail — console dekho error ke liye")
             await asyncio.sleep(3)
         except Exception as e:
-            await ctx.send(f"❌ Channel {ch_id} error: {e}")
+            log(f"[Bump] bumpnow exception: {type(e).__name__}: {e}")
+            await ctx.send(f"❌ Channel {ch_id} error: {type(e).__name__}: {e}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 
 @bot.event
 async def on_ready():
-    print(f'Divya online!')
+    log(f'Divya online! Session: {bot._connection.session_id}')
     bot.loop.create_task(auto_bump())
 
 @bot.event
@@ -314,7 +329,7 @@ async def on_message(message):
             user_memories[user_id] = user_memories[user_id][-12:]
 
     except Exception as e:
-        print(f"Error: {e}")
+        log(f"Error: {e}")
 
 keep_alive()
 bot.run(USER_TOKEN)
