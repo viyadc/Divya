@@ -3,6 +3,7 @@ from discord.ext import commands
 import asyncio
 import random
 import time
+import aiohttp
 from groq import Groq
 import os
 import re
@@ -29,7 +30,6 @@ USER_TOKEN = os.getenv('USER_TOKEN')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 groq_client = Groq(api_key=GROQ_API_KEY)
 
-# Multi-server bump channel list (runtime mein add/remove hoga)
 bump_channels = set()
 
 bot = commands.Bot(command_prefix="!", self_bot=True, help_command=None)
@@ -87,26 +87,58 @@ def split_message_naturally(text):
 
 # ─── AUTO BUMP ────────────────────────────────────────────────────────────────
 
-DISBOARD_BOT_ID = 302050872383242240
+DISBOARD_BOT_ID = "302050872383242240"
 
 async def bump_channel(channel):
-    await channel._state.http.request(
-        discord.http.Route('POST', '/interactions'),
-        json={
-            "type": 2,
-            "application_id": str(DISBOARD_BOT_ID),
-            "guild_id": str(channel.guild.id),
-            "channel_id": str(channel.id),
-            "data": {
-                "version": "947088344167366698",
+    """Direct aiohttp se /bump slash command bhejta hai — 100% self-bot compatible."""
+    nonce = str(int(time.time() * 1000))
+    payload = {
+        "type": 2,
+        "application_id": DISBOARD_BOT_ID,
+        "guild_id": str(channel.guild.id),
+        "channel_id": str(channel.id),
+        "session_id": bot._connection.session_id or "deadbeef",
+        "data": {
+            "version": "947088344167366698",
+            "id": "947088344167366698",
+            "name": "bump",
+            "type": 1,
+            "options": [],
+            "application_command": {
                 "id": "947088344167366698",
+                "application_id": DISBOARD_BOT_ID,
                 "name": "bump",
-                "type": 1
+                "description": "Bump your server on DISBOARD!",
+                "version": "947088344167366698",
+                "type": 1,
+                "options": []
             },
-            "session_id": bot._connection.session_id,
-            "nonce": str(int(time.time() * 1000))
-        }
-    )
+            "attachments": []
+        },
+        "nonce": nonce,
+        "analytics_location": "slash_ui"
+    }
+
+    headers = {
+        "Authorization": USER_TOKEN,
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "X-Super-Properties": "eyJvcyI6IldpbmRvd3MiLCJicm93c2VyIjoiQ2hyb21lIn0=",
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            "https://discord.com/api/v10/interactions",
+            json=payload,
+            headers=headers
+        ) as resp:
+            if resp.status == 204:
+                print(f"[Bump] /bump bheja -> #{channel.name} ({channel.guild.name}) OK")
+                return True
+            else:
+                text = await resp.text()
+                print(f"[Bump] Failed {resp.status}: {text}")
+                return False
 
 async def auto_bump():
     await bot.wait_until_ready()
@@ -117,12 +149,11 @@ async def auto_bump():
                 try:
                     channel = bot.get_channel(ch_id) or await bot.fetch_channel(ch_id)
                     await bump_channel(channel)
-                    print(f"[Bump] /bump bheja -> #{channel.name} ({channel.guild.name}) OK")
                     await asyncio.sleep(3)
                 except Exception as e:
                     print(f"[Bump] Error channel {ch_id}: {e}")
         else:
-            print("[Bump] Koi channel registered nahi hai abhi.")
+            print("[Bump] Koi channel registered nahi hai.")
         await asyncio.sleep(7200)
 
 # ─── BUMP COMMANDS ────────────────────────────────────────────────────────────
@@ -170,8 +201,11 @@ async def bump_now(ctx):
     for ch_id in list(bump_channels):
         try:
             channel = bot.get_channel(ch_id) or await bot.fetch_channel(ch_id)
-            await bump_channel(channel)
-            await ctx.send(f"✅ Bumped #{channel.name} ({channel.guild.name})")
+            success = await bump_channel(channel)
+            if success:
+                await ctx.send(f"✅ Bumped #{channel.name} ({channel.guild.name})")
+            else:
+                await ctx.send(f"❌ #{channel.name} bump fail hua — console dekho")
             await asyncio.sleep(3)
         except Exception as e:
             await ctx.send(f"❌ Channel {ch_id} error: {e}")
@@ -185,25 +219,19 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
-    # ⚠️ APNE messages pehle check karo — commands yahan se trigger honge
+    # Apne messages — commands process karo
     if message.author.id == bot.user.id:
         await bot.process_commands(message)
         return
 
-    # Bots ignore
     if message.author.bot:
         return
-
-    # @everyone / @here ignore
     if message.mention_everyone:
         return
-
-    # Basic filters
     if len(message.content) < 2: return
     if message.content.startswith(('!', '.', '?', '/', '$', '@')): return
     if "http" in message.content.lower() or "discord.gg" in message.content.lower(): return
 
-    # SIRF mention pe respond karo
     if not bot.user.mentioned_in(message):
         return
 
